@@ -1,6 +1,12 @@
 # bookable
 Booking engine with arbitrary integer intervals
 
+
+## Permissions
+
+The zanzibar tuple of `object#relation@subject` does not handle time intervals. These can be handled externally. It's not entirely clear how best to approach the general problem of adding short intervals to zanzibar-style rules - hybridise with existing zanibar server and provide only the interval (using a service that links a zanzibar relation to the time interval though a hash of the relation ... although that in itself has some difficulties), or to implement all of zanzibar (not trivial). 
+
+
 ## Introduction
 
 Use `bookable` to answer the question **"Is this object bookable?"** 
@@ -22,6 +28,63 @@ There are a number of features it may offer, including
   - use external NTP server (useful for mock time during integration testing)
   - listening port
   - logging (e.g. to ELK stack, or at least to file which can be sent to ELK stack with beats)
+  
+## Immutable bookings
+
+Bookable implements immutable bookings behind the scenes, and permits mutation through an atomic Update operation that deletes the old booking and creates a new one, if the new booking is valid. This pushes to the user all the use-case-specific logic about what updates are permitted, and how to manage them, which is where it belongs. Thus:
+
+`bookable` guarantees that
+ - at most one booking exists for any interval for a given object in a namespace.
+ - a booking id is associated with only one immutable 6-tuple of namespace-object-subject-iat-nbf-exp
+ - all bookings it holds are valid 
+
+Each booking can be represented as a row in a table:
+
+| ns    | id   | iat      | nbf      | exp      | obj  | sub  | rel |
+|-------|------|----------|----------|----------|------|------|-----|
+| str   | uuid | datetime | datetime | datetime | str  | str  | str |
+
+
+ 
+### Update operation
+
+The update operation has to protect a user from losing access to any of the interval they already booked. A non-atomic delete-then-create request sequence could see another user "steal" the portion of the old booking they wanted to keep. To prevent this, we have two choices: 
+
+ - temporarily allow overlapping intervals, add new booking then delete old one
+ - lock out other users from booking that object while we delete the old booking then create the new one
+ 
+The implementation is dependent on the way the intervals are handled internally, and is not necessary that it is specified here.
+ 
+### We only store some old bookings 
+
+Bookable by design does NOT hold a complete record of previous bookings, e.g. a cancelled booking is expected to be deleted, not updated. If a system requires a history of changes made to a booking (e.g. to understand user behaviour) then it will need to collect that information from logs or events created by the booking agent that is using bookable. Bookable cannot possibly know about the factors that are relevant to such a system, and will incur a performance penalty in tracking/maintaining stale state.
+
+
+### Why we implement mutability by Delete-Create of immutable bookings
+
+This section describes what might be involved in directly implementing mutability, so as to highlight why we don't.  In short, it requires understanding use cases we don't, and can't, know about.
+
+First, consider that there are different ways bookable can be used:
+
+ - a representation of time-dependent policies for time-based authorization
+ - an experiment booking system for simple sessions
+ - an experiment booking system for multi-part sessions (e.g. preparation, session, clean up)
+ - something else we don't know about yet.
+ 
+Each of these cases requires a different approach to changing the start time of a booking when the original start time has already passed. For example, for a simple policy permission interval there might be no problem in delaying the start time to a time later than now, e.g. user access to a resource may be blocked for a time as intended. For an experiment, the preparation phase may have already started, when the start time is shifted by the user, so do you hold the now-prepared experiment for the user, look for another user on a wait-list, or go straight to clean-up? This will vary from experiment to experiment, and booking agent to booking agent. Not our problem.
+
+A tempting policy that seems to solve this (but doesn't really) is to permit only changes to future events. Sometimes we really do need to move an already-passed start time to the future, so we just add an additional complexity to the logic about whether the booking agent mutates the existing booking or creates a new one, and how to interpret the booking details it returns.
+
+Even if we have a mutatable booking for a use case where are modifying a future event, how do we ensure that all consumers of the booking are adequately prepared to handle the mutations? We can flag the changes in the booking data structure additional fields such as
+
+- sequence number for whole booking which is incremented for every change (ok, but what changed? now consumers have to cache last booking as well)
+- sequence numbers for each aspect of the booking (ok, each validity check now needs to include a check that the booking exists, and that sequence numbers on each element are up to date)
+- issued at -> does this get updated on each update, but what happens if there is some sort of deconfliction based on when session booked, and is changing a session equal to rebooking? what if just shortening it, which is an altruistic act, how is it fair that this booking now becomes more recent and lower priority if there is an equipment shortage? Users would not be incentivised to play fair here.
+- add an 'uat' updated field for the booking. So do we keep sequence numbers for individual elements as well? Or do we have individual uat for the elements of the booking
+- what if we want to change the sub, obj? Do we need versions for those as well, and how to consumers interpret those changes.
+
+These complications don't have clear answers, which mean we are attempting to reason about things we cannot know. Those problems get pushed out of the domain of bookable, and into the consumer's domain if we enforce that booking contents are immutable, and a booking is valid if it exists. Then the consumer can figure out how it wants to handle mutation. If the overhead of swapping one booking id for another is perceived to be too much overhead for the consumer, then it is arguable that the consumer has not fully considered the implications of mutation, and should not attempt to support it (rather than expecting that their business logic should have been anticipated by bookable).
+
  
 ## Definitions
 
@@ -198,9 +261,11 @@ It probably does not matter a great deal what scheme is used, because the heavy 
 
 Therefore we could consider a table structure like this
 
-| id    | nbf | exp | ns-obj | obj  |  ns-sub | sub |
-|-------|-----|-----|----|------|------|
-| uuid  | datetime | datetime | uuid | uuid | uuid | uuid |
+| ns    | id   | iat      | nbf      | exp      | obj  | sub  |
+|-------|------|----------|----------|----------|------|------|
+| str   | uuid | datetime | datetime | datetime | str  | str  |
+
+ 
 
 Note that objects and subjects quite possibly have different namespaces.
 
