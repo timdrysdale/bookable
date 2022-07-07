@@ -15,7 +15,7 @@ The `bookable` engine is designed to guarantee that
  
 Please make other arrangements to track the history of expired bookings - bookings may be deleted at any time after they have expired or been cancelled, in any order.
 
-The booking engine is expected to be used only by trusted entities, each in their own namespace, so that authN, authZ can be handled in one or more ways as required by the larger system. You may wish to build a custom proxy layer that can check which namespaces/objects can be booked.
+The booking engine is expected to be used only by trusted entities, each in their own namespace, so that authN, authZ can be handled in one or more ways as required by the larger system. You may wish to build a custom proxy layer that can check which namespaces/objects can be booked. For future, note the inclusion of oauth scopes in this [example gRPC](https://github.com/googleapis/googleapis/blob/ff1d8c034f4cc2dcd6df386fe08297461123330f/google/cloud/resourcemanager/v2/folders.proto#L42).
 
 ## Features
 
@@ -128,8 +128,32 @@ This section is included to aid developers actively working on the code and will
  - readiness - R
  - namespace - CRD
  - object - CRD
- - booking - CRUD
+ - booking - CRUD  note that put is replace, and post is for create [gRPC transcoding](https://github.com/googleapis/googleapis/blob/master/google/api/http.proto)
  
+  a namespace has a collection of objects
+  an object has a collection of bookings
+  a booking is a simple resource 
+ 
+  so....
+  
+  API service `bookable.apis.practable.io`
+  
+  A collection of namespaces: `namespaces/*`. Each namespace has the following resource:
+  
+    - collection of objects: `namespaces/*/bookableObjects/*`. Each object has the following resource:
+	
+      - collection of bookings: `namespaces/*/bookableObjects/*/bookings/*`
+	    
+	 	Each booking is a simple resource containing `ns`, `id`, `iat`, `nbf`, `exp`, `obj`, `sub`.
+
+| API Service name | Collection ID | Resource ID | Collection ID | Resource ID | Collection ID | Resource ID |
+|------------------|---------------|-------------|---------------|-------------|---------------|-------------|
+| //bookable.apis.practable.io | /namespaces | /namespace-id | /bookableObjects | /bookableObject-id | /bookings | /booking-id |
+    
+
+
+
+
 #### Data structures 
  
  namespace:

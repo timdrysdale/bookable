@@ -1,0 +1,44 @@
+// The bookable service definition
+service BookableService {
+  
+  rpc CreateNamespace (CreateNamespaceRequest) returns (Namespace) {
+	option (google.api.http) = {
+	   post: "/v1alpha1/namespaces"
+	   body: "namespace"
+	};
+  };
+
+  rpc CreateBookableObject (CreateBookableObjectRequest) returns (CreateBookableObjectResponse) {
+	
+
+  };
+
+  rpc ListBookableObjects (ListBookableObjectsRequest) returns (ListBookableObjectsResponse) {
+	option (google.api.http) = {
+	   get: "/v1alpha1/namespaces/*"
+	};
+  };
+ 									   
+}
+
+// The CreateNamespace request message
+message CreateNamespaceRequest {
+
+  // The identifier for the namespace
+  string identifier = 1 [(google.api.field_behavior) = IMMUTABLE];
+
+}
+
+
+// The ListBookableObjects response message.
+message ListBookableObjectsResponse {
+  // A possibly paginated list of BookableObjects that are direct descendants of
+  // the specified namespace.
+  repeated BookableObject bookableObjects = 1;
+
+  // A pagination token returned from a previous call to `ListBookableObjects`
+  // that indicates from where listing should continue.
+  string next_page_token = 2;
+}
+
+message BookableObject
